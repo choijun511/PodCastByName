@@ -1,3 +1,4 @@
+import {trackingState,personApi,tickPeople} from './person-discovery.js';
 import {XMLParser,XMLValidator} from 'fast-xml-parser';
 import {SOURCE_DEFINITIONS,RULE_VERSION,aliases,containsName,decide,regression} from './intake-rules.js';
 const stamp=()=>new Date().toISOString();
@@ -80,19 +81,21 @@ export async function runSource(db,sourceId,trigger='admin',fetcher=fetch){
 export async function tick(db,fetcher=fetch){await initializeIntake(db);await db.prepare("UPDATE intake_runs SET status='interrupted',finished_at=? WHERE status='running' AND created_at<?").bind(stamp(),new Date(Date.now()-120000).toISOString()).run();const sources=await all(db,'SELECT id FROM intake_sources WHERE enabled=1 AND next_run_at<=? ORDER BY next_run_at,id LIMIT 1',[Date.now()]);return sources.length?runSource(db,sources[0].id,'scheduler',fetcher):{status:'not_due'};}
 export async function adminApi(request,env,path,readBody){
  await authorize(request,env);const db=env.DB;await initializeIntake(db);
+ if(request.method==='GET'&&path==='/api/admin/person-detail')return personApi(request,db,path);
  if(request.method==='GET'&&path==='/api/admin/state'){
   const [sources,runs,counts,candidates,evaluations,feedback]=await Promise.all([
    all(db,'SELECT * FROM intake_sources ORDER BY id'),all(db,'SELECT * FROM intake_runs ORDER BY created_at DESC LIMIT 30'),all(db,'SELECT status,COUNT(*) AS n FROM intake_candidates GROUP BY status'),all(db,'SELECT * FROM intake_candidates ORDER BY updated_at DESC LIMIT 100'),all(db,'SELECT * FROM intake_evaluations ORDER BY created_at DESC LIMIT 5'),all(db,"SELECT e.id,e.person_id,e.data,COUNT(v.client_hash) AS votes,SUM(v.value='no') AS negative,h.hidden_at FROM episodes e JOIN votes v ON v.episode_id=e.id LEFT JOIN hidden h ON h.episode_id=e.id GROUP BY e.id ORDER BY negative DESC")
   ]);
-  return {mode:'shadow',rule_version:RULE_VERSION,generated_at:stamp(),sources:sources.map(s=>({...s,...JSON.parse(s.data),data:undefined})),runs:runs.map(r=>({...r,summary:JSON.parse(r.summary)})),counts,candidates,evaluations:evaluations.map(e=>({...e,result:JSON.parse(e.result)})),feedback:feedback.map(f=>({...f,title:JSON.parse(f.data).title,data:undefined})),gates:{publication:'blocked_reference_benchmark',accuracy:null,model:'disabled_no_cost',scheduler:'not_connected',coverage:'3 registered RSS feeds; existing people only',explanation:'规则仅产生影子候选；尚未接入独立真实标注集，不宣称99%准确率。定时触发接口已实现，云端调度尚未连接。'}};
+  return {tracking:await trackingState(db),mode:'shadow',rule_version:RULE_VERSION,generated_at:stamp(),sources:sources.map(s=>({...s,...JSON.parse(s.data),data:undefined})),runs:runs.map(r=>({...r,summary:JSON.parse(r.summary)})),counts,candidates,evaluations:evaluations.map(e=>({...e,result:JSON.parse(e.result)})),feedback:feedback.map(f=>({...f,title:JSON.parse(f.data).title,data:undefined})),gates:{publication:'blocked_reference_benchmark',accuracy:null,model:'disabled_no_cost',scheduler:'not_connected',coverage:'Apple Podcasts US/CN episode search; two names, 50 results per name/region; not exhaustive',explanation:'规则仅产生影子候选；尚未接入独立真实标注集，不宣称99%准确率。定时触发接口已实现，云端调度尚未连接。'}};
  }
  if(request.method==='GET'&&path==='/api/admin/evidence'){
   const id=new URL(request.url).searchParams.get('id')||'';const history=await all(db,'SELECT * FROM intake_snapshots WHERE candidate_id=? ORDER BY created_at DESC LIMIT 20',[id]);if(!history.length)fail(404,'证据不存在');return {history:history.map(s=>({...s,data:JSON.parse(s.data)}))};
  }
  if(request.method==='POST'){
   const data=await readBody(request);
+  const personResult=await personApi(request,db,path,data);if(personResult)return personResult;
   if(path==='/api/admin/run'){if(typeof data.source_id!=='string')fail(400,'请选择来源');const r=await runSource(db,data.source_id);return {...r,summary:JSON.parse(r.summary)};}
-  if(path==='/api/admin/tick')return tick(db);
+  if(path==='/api/admin/tick')return tickPeople(db);
   if(path==='/api/admin/source'){
    if(typeof data.enabled!=='boolean'||!SOURCE_DEFINITIONS.some(s=>s.id===data.id))fail(400,'来源设置无效');
    await db.prepare('UPDATE intake_sources SET enabled=? WHERE id=?').bind(data.enabled?1:0,data.id).run();return {ok:true};

@@ -1,3 +1,4 @@
+import {tickPeople} from './person-discovery.js';
 import {adminApi,tick} from './intake.js';
 import catalog from './catalog.json' with {type:'json'};
 import assets from './assets.json' with {type:'json'};
@@ -83,7 +84,7 @@ const headers={
  'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'"
 };
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{...headers,'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});}
-export default {async scheduled(event,env,ctx){ctx.waitUntil((async()=>{const db=dbFor(env);await initialize(db);await tick(db);})());},async fetch(request,env){
+export default {async scheduled(event,env,ctx){ctx.waitUntil((async()=>{const db=dbFor(env);await initialize(db);await tickPeople(db);})());},async fetch(request,env){
  try{
  const url=new URL(request.url),path=url.pathname;
 

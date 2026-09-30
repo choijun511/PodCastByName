@@ -15,6 +15,13 @@
       "when": 1790750434411,
       "tag": "0001_opposite_master_mold",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790756475581,
+      "tag": "0002_furry_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 const {chromium}=require('/Users/bytedance/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const assert=require('node:assert/strict');
 (async()=>{
- const base='http://127.0.0.1:18767',browser=await chromium.launch({headless:true,executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+ const base=process.env.TEST_BASE||'http://127.0.0.1:18767',browser=await chromium.launch({headless:true,executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
  try{
  const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(base);await page.locator('.discovery-guide').waitFor();
@@ -17,7 +17,7 @@ const assert=require('node:assert/strict');
  const other=await browser.newPage();await other.goto(base+'/#requests');await other.getByRole('heading',{name:'还没有补录请求'}).waitFor();await other.close();
  await page.setViewportSize({width:390,height:844});await page.goto(base+'/#person/jensen');await page.locator('#explore-show').waitFor();assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await page.screenshot({path:'../artifacts/visual/online-worker-person-mobile.png'});
- assert.equal((await page.request.get(base+'/api/admin/state')).status(),404);assert.equal((await page.request.get(base+'/admin.html')).status(),404);assert.equal((await page.request.get(base+'/data.js')).status(),404);
+ assert.equal((await page.request.get(base+'/api/admin/state')).status(),401);assert.equal((await page.request.get(base+'/admin.html')).status(),200);assert.equal((await page.request.get(base+'/data.js')).status(),404);
  assert.deepEqual(errors,[]);console.log('WORKER_D1_BROWSER_OK: search/follow/real EN+ZH playback/progress/request persistence+isolation/mobile/private surfaces');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1)});

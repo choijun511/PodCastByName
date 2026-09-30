@@ -1,3 +1,4 @@
+import {adminApi,tick} from './intake.js';
 import catalog from './catalog.json' with {type:'json'};
 import assets from './assets.json' with {type:'json'};
 
@@ -59,7 +60,7 @@ async function submitRequest(db,data,hash){
  const query=bounded(data.query,'人物姓名',200,true),hint=bounded(data.identity_hint??'','身份线索',1000),key=normalize(query),hintKey=normalize(hint);
  const existing=await first(db,'SELECT * FROM requests WHERE client_hash=? AND query_key=? AND hint_key=?',[hash,key,hintKey]);if(existing)return {request:requestItem(existing),created:false};
  const id='request-'+crypto.randomUUID(),stamp=now(),cutoff=new Date(Date.now()-864e5).toISOString();
- await db.prepare("INSERT OR IGNORE INTO requests(id,client_hash,query,identity_hint,query_key,hint_key,status,note,person_id,created_at,updated_at) SELECT ?,?,?,?,?,?,'queued','入库流程暂缓，已保存你的需求，暂不承诺补录时间。','',?,? WHERE (SELECT COUNT(*) FROM requests WHERE client_hash=? AND created_at>=?)<20 AND (SELECT COUNT(*) FROM requests WHERE client_hash=?)<200").bind(id,hash,query,hint,key,hintKey,stamp,stamp,hash,cutoff,hash).run();
+ await db.prepare("INSERT OR IGNORE INTO requests(id,client_hash,query,identity_hint,query_key,hint_key,status,note,person_id,created_at,updated_at) SELECT ?,?,?,?,?,?,'queued','已保存需求。入库正在影子验证，尚未开放新人物自动发布，暂不承诺补录时间。','',?,? WHERE (SELECT COUNT(*) FROM requests WHERE client_hash=? AND created_at>=?)<20 AND (SELECT COUNT(*) FROM requests WHERE client_hash=?)<200").bind(id,hash,query,hint,key,hintKey,stamp,stamp,hash,cutoff,hash).run();
  const result=await first(db,'SELECT * FROM requests WHERE client_hash=? AND query_key=? AND hint_key=?',[hash,key,hintKey]);if(!result)throw new HttpError(429,'补录请求已达本设备限额，请稍后再试');return {request:requestItem(result),created:result.id===id};
 }
 async function vote(db,data,hash){
@@ -82,10 +83,10 @@ const headers={
  'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'"
 };
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{...headers,'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});}
-export default {async fetch(request,env){
+export default {async scheduled(event,env,ctx){ctx.waitUntil((async()=>{const db=dbFor(env);await initialize(db);await tick(db);})());},async fetch(request,env){
  try{
  const url=new URL(request.url),path=url.pathname;
- if(path.startsWith('/api/admin')||path==='/admin.html'||path==='/admin.js')return json({error:'线上未开放管理入口'},404);
+
  if(!path.startsWith('/api/')){
   if(!['GET','HEAD'].includes(request.method))return json({error:'请求方法不支持'},405);
   const asset=assets[path==='/'?'/index.html':path];if(!asset)return json({error:'页面不存在'},404);
@@ -95,6 +96,7 @@ export default {async fetch(request,env){
  const origin=request.headers.get('origin');if(origin&&origin!==url.origin)throw new HttpError(403,'禁止跨来源访问');
  if(request.method==='POST'&&request.headers.get('sec-fetch-site')==='cross-site')throw new HttpError(403,'禁止跨来源写入');
  const db=dbFor(env);await initialize(db);
+ if(path.startsWith('/api/admin/'))return json(await adminApi(request,env,path,readBody));
  if(request.method==='GET'){
   if(path==='/api/health')return json({service:'tingshui',status:'ok',mode:'online'});
   if(path==='/api/people')return json(await peopleList(db));
@@ -117,5 +119,5 @@ export default {async fetch(request,env){
  const hash=await clientHash(data.client_key);await limitWrites(db,request,hash);
  if(path==='/api/requests')return json(await submitRequest(db,data,hash));
  return json(await vote(db,data,hash));
- }catch(error){if(!(error instanceof HttpError))console.error('request_failed',error.name);return json({error:error instanceof HttpError?error.message:'服务暂不可用，请稍后重试'},error.status||503);}
+ }catch(error){if(!error.status)console.error('request_failed',error.name);return json({error:error instanceof HttpError?error.message:error.publicMessage||'服务暂不可用，请稍后重试'},error.status||503);}
 }};

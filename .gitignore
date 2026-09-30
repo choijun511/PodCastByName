@@ -19,3 +19,4 @@ site/.git/
 *.log
 .DS_Store
 artifacts/
+**/.dev.vars*

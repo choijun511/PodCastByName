@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+prototype/*.sqlite3
+prototype/*.sqlite3-*
+.env
+
+prototype/.runtime/
+
+# Dependency, build and runtime files; keep prototype/dist source assets.
+**/node_modules/
+**/__pycache__/
+**/.env*
+!**/.env.example
+site/dist/
+site/.wrangler/
+site/.sites-runtime/
+site/site.tar.gz
+site/.git/
+*.log
+.DS_Store
+artifacts/

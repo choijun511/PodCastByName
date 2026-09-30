@@ -1,0 +1,17 @@
+{
+  "name": "tingshui-online",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "validate": "node scripts/validate-artifact.mjs",
+    "test": "node --test test/*.test.mjs",
+    "db:generate": "drizzle-kit generate"
+  },
+  "devDependencies": {
+    "drizzle-orm": "0.45.2",
+    "drizzle-kit": "0.31.10",
+    "wrangler": "4.92.0"
+  },
+  "packageManager": "pnpm@11.25.0"
+}

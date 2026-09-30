@@ -1,0 +1,105 @@
+[
+  {
+    "person": "黄仁勋",
+    "feed": "https://lexfridman.com/feed/podcast/",
+    "checked_at": "2026-09-25T08:10:37.064821+00:00",
+    "episodes": [
+      {
+        "title": "#494 – Jensen Huang: NVIDIA – The $4 Trillion Company & the AI Revolution",
+        "guid": "https://lexfridman.com/?p=6434",
+        "published": "Mon, 23 Mar 2026 16:28:42 +0000",
+        "link": "https://lexfridman.com/jensen-huang/?utm_source=rss&utm_medium=rss&utm_campaign=jensen-huang",
+        "audio": {
+          "url": "https://media.blubrry.com/takeituneasy/ins.blubrry.com/takeituneasy/lex_ai_jensen_huang.mp3",
+          "length": "116997396",
+          "type": "audio/mpeg"
+        },
+        "probe": {
+          "status": 206,
+          "content_type": "audio/mpeg",
+          "content_range": "bytes 0-1023/116997396",
+          "bytes_read": 1024
+        }
+      }
+    ],
+    "show": "Lex Fridman Podcast"
+  },
+  {
+    "person": "刘震云",
+    "feed": "https://feed.xyzfm.space/mcklbwxjdvfu",
+    "checked_at": "2026-09-25T08:10:37.065094+00:00",
+    "episodes": [
+      {
+        "title": "vol.44 对谈刘震云：单线思考 正在伤害我们理解世界的能力",
+        "guid": "69807d712fc7f49d09611d00",
+        "published": "Tue, 03 Feb 2026 00:00:00 GMT",
+        "link": "https://www.xiaoyuzhoufm.com/episode/69807d712fc7f49d09611d00?utm_source=rss",
+        "audio": {
+          "url": "https://dts-api.xiaoyuzhoufm.com/track/65cef9e3cace72dff8d98de3/69807d712fc7f49d09611d00/media.xyzcdn.net/65cef9e3cace72dff8d98de3/lhiHEqv37wpXjlUJvY39mQro-luO.m4a",
+          "type": "audio/mp4",
+          "length": "59525646"
+        },
+        "probe": {
+          "status": 206,
+          "content_type": "audio/mp4",
+          "content_range": "bytes 0-1023/59525646",
+          "bytes_read": 1024
+        }
+      }
+    ],
+    "show": "天真不天真"
+  },
+  {
+    "person": "Ocean Vuong",
+    "feed": "https://feeds.simplecast.com/AuAxH_Bf",
+    "checked_at": "2026-09-25T08:10:37.065220+00:00",
+    "episodes": [
+      {
+        "title": "Ocean Vuong — Hope Portal, Episode 4",
+        "guid": "032971a2-e66b-4ab9-808d-df56b673724a",
+        "published": "Thu, 19 Jun 2025 18:00:00 +0000",
+        "link": "https://onbeing.org/programs/ocean-vuong-hope-portal-episode-4/",
+        "audio": {
+          "length": "11036371",
+          "type": "audio/mpeg",
+          "url": "https://dts.podtrac.com/redirect.mp3/afp-901179-injected.calisto.simplecastaudio.com/85760130-020c-4d30-8e15-26c5c451394f/episodes/19f6a219-77b7-474c-98bf-efc06e37f68a/audio/128/default.mp3?aid=rss_feed&awCollectionId=85760130-020c-4d30-8e15-26c5c451394f&awEpisodeId=19f6a219-77b7-474c-98bf-efc06e37f68a&feed=AuAxH_Bf"
+        },
+        "probe": {
+          "status": 206,
+          "content_type": "audio/mpeg",
+          "content_range": "bytes 0-1023/11035944",
+          "bytes_read": 1024
+        }
+      },
+      {
+        "title": "Ocean Vuong — A Life Worthy of Our Breath",
+        "guid": "fd9e792c-71b3-4bad-a984-7b691e1fc02b",
+        "published": "Thu, 16 Jun 2022 18:05:00 +0000",
+        "link": "https://onbeing.org/programs/ocean-vuong-a-life-worthy-of-our-breath-2022",
+        "audio": {
+          "length": "47359445",
+          "type": "audio/mpeg",
+          "url": "https://dts.podtrac.com/redirect.mp3/afp-901179-injected.calisto.simplecastaudio.com/85760130-020c-4d30-8e15-26c5c451394f/episodes/b02af224-1444-4dbd-98bd-ea14da1a2b08/audio/128/default.mp3?aid=rss_feed&awCollectionId=85760130-020c-4d30-8e15-26c5c451394f&awEpisodeId=b02af224-1444-4dbd-98bd-ea14da1a2b08&feed=AuAxH_Bf"
+        },
+        "probe": {
+          "status": 206,
+          "content_type": "audio/mpeg",
+          "content_range": "bytes 0-1023/47358600",
+          "bytes_read": 1024
+        }
+      },
+      {
+        "title": "[Unedited] Ocean Vuong with Krista Tippett",
+        "guid": "b0f3e7ef-90e7-4f6b-a947-57881fe098ef",
+        "published": "Thu, 16 Jun 2022 18:00:00 +0000",
+        "link": "https://onbeing.org/programs/ocean-vuong-a-life-worthy-of-our-breath-2022",
+        "audio": {
+          "length": "88602185",
+          "type": "audio/mpeg",
+          "url": "https://dts.podtrac.com/redirect.mp3/afp-901179-injected.calisto.simplecastaudio.com/85760130-020c-4d30-8e15-26c5c451394f/episodes/61967770-5c46-4f71-836c-9401e71f03ff/audio/128/default.mp3?aid=rss_feed&awCollectionId=85760130-020c-4d30-8e15-26c5c451394f&awEpisodeId=61967770-5c46-4f71-836c-9401e71f03ff&feed=AuAxH_Bf"
+        }
+      }
+    ],
+    "show": "On Being with Krista Tippett"
+  }
+]

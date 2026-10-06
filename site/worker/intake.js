@@ -1,5 +1,6 @@
 import {trackingState,personApi,tickPeople} from './person-discovery.js';
-import {XMLParser,XMLValidator} from 'fast-xml-parser';
+import {fetchFeed} from './rss.js';
+export {parseFeed,fetchFeed,plain} from './rss.js';
 import {SOURCE_DEFINITIONS,RULE_VERSION,aliases,containsName,decide,regression} from './intake-rules.js';
 const stamp=()=>new Date().toISOString();
 const all=async(db,q,a=[]) => (await db.prepare(q).bind(...a).all()).results;
@@ -10,30 +11,6 @@ export async function authorize(request,env){
  const expected=env.INTAKE_ADMIN_TOKEN,provided=request.headers.get('authorization')?.replace(/^Bearer /,'')||'';
  if(!expected||expected.length<40)fail(503,'后台访问凭据尚未配置');
  if(provided.length>256||await digest(provided)!==await digest(expected))fail(401,'管理凭据无效，请重新登录');
-}
-const arr=x=>x===undefined?[]:Array.isArray(x)?x:[x];
-const txt=x=>typeof x==='string'?x:typeof x==='number'?String(x):x?.['#text']||'';
-export function plain(s){return String(s||'').replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi,'').replace(/<\/?(?:p|div|br|li|h[1-6])\b[^>]*>/gi,'\n').replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").trim();}
-const safeLink=s=>{try{const u=new URL(s);return u.protocol==='https:'&&!u.username&&!u.password?s:'';}catch{return '';}};
-export function parseFeed(xml){
- if(new TextEncoder().encode(xml).length>4*1024*1024)fail(422,'RSS超过4MB限制');
- if(/<!\s*(DOCTYPE|ENTITY)/i.test(xml))fail(422,'拒绝含实体声明的RSS');
- if(XMLValidator.validate(xml)!==true)fail(422,'RSS格式无效');
- const doc=new XMLParser({ignoreAttributes:false,parseTagValue:false,processEntities:false}).parse(xml);
- const channel=doc.rss?.channel;if(!channel)fail(422,'当前仅接入RSS 2.0源');
- const items=arr(channel.item);if(items.length>3000)fail(422,'RSS单集超过3000条限制');
- return items.map(i=>({title:plain(txt(i.title)).slice(0,1000),description:plain(txt(i['content:encoded'])||txt(i.description)).slice(0,40000),publisher_text:(txt(i['content:encoded'])||txt(i.description)).slice(0,60000),audio:safeLink(arr(i.enclosure).find(e=>/^audio\//.test(e?.['@_type']||''))?.['@_url']||''),source:safeLink(txt(i.link)),guid:txt(i.guid).slice(0,1000),date:txt(i.pubDate).slice(0,100),show:plain(txt(channel.title)).slice(0,200),lang:txt(channel.language).slice(0,40),version:'RSS单集'}));
-}
-export async function fetchFeed(source,fetcher=fetch){
- // Only exact registered feeds are fetched. Redirects fail closed; no user supplied network destination.
- if(!SOURCE_DEFINITIONS.some(s=>s.id===source.id&&s.url===source.url))fail(422,'来源未在已注册RSS列表中');
- const response=await fetcher(source.url,{redirect:'manual',signal:AbortSignal.timeout(15000),headers:{Accept:'application/rss+xml, application/xml, text/xml'}});
- if(response.status!==200)fail(502,'来源返回HTTP '+response.status+'；重定向需重新验证来源');
- if(Number(response.headers.get('content-length'))>4*1024*1024)fail(422,'RSS超过4MB限制');
- const reader=response.body?.getReader();if(!reader)fail(502,'RSS内容为空');let size=0,parts=[];
- try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>4*1024*1024)fail(422,'RSS超过4MB限制');parts.push(value);}}finally{await reader.cancel().catch(()=>{});}
- const buffer=new Uint8Array(size);let at=0;for(const p of parts){buffer.set(p,at);at+=p.length;}
- const xml=new TextDecoder().decode(buffer);return {items:parseFeed(xml),hash:await digest(xml),bytes:size};
 }
 export async function initializeIntake(db){await db.batch(SOURCE_DEFINITIONS.map(s=>db.prepare("INSERT OR IGNORE INTO intake_sources(id,data,enabled,last_status,last_run_at,next_run_at) VALUES(?,?,1,'never','',0)").bind(s.id,JSON.stringify(s))));}
 export async function runSource(db,sourceId,trigger='admin',fetcher=fetch){
@@ -86,7 +63,7 @@ export async function adminApi(request,env,path,readBody){
   const [sources,runs,counts,candidates,evaluations,feedback]=await Promise.all([
    all(db,'SELECT * FROM intake_sources ORDER BY id'),all(db,'SELECT * FROM intake_runs ORDER BY created_at DESC LIMIT 30'),all(db,'SELECT status,COUNT(*) AS n FROM intake_candidates GROUP BY status'),all(db,'SELECT * FROM intake_candidates ORDER BY updated_at DESC LIMIT 100'),all(db,'SELECT * FROM intake_evaluations ORDER BY created_at DESC LIMIT 5'),all(db,"SELECT e.id,e.person_id,e.data,COUNT(v.client_hash) AS votes,SUM(v.value='no') AS negative,h.hidden_at FROM episodes e JOIN votes v ON v.episode_id=e.id LEFT JOIN hidden h ON h.episode_id=e.id GROUP BY e.id ORDER BY negative DESC")
   ]);
-  return {tracking:await trackingState(db),mode:'shadow',rule_version:RULE_VERSION,generated_at:stamp(),sources:sources.map(s=>({...s,...JSON.parse(s.data),data:undefined})),runs:runs.map(r=>({...r,summary:JSON.parse(r.summary)})),counts,candidates,evaluations:evaluations.map(e=>({...e,result:JSON.parse(e.result)})),feedback:feedback.map(f=>({...f,title:JSON.parse(f.data).title,data:undefined})),gates:{publication:'blocked_reference_benchmark',accuracy:null,model:'disabled_no_cost',scheduler:'not_connected',coverage:'Apple Podcasts US/CN episode search; two names, 50 results per name/region; not exhaustive',explanation:'规则仅产生影子候选；尚未接入独立真实标注集，不宣称99%准确率。定时触发接口已实现，云端调度尚未连接。'}};
+  return {tracking:await trackingState(db),mode:'shadow',rule_version:RULE_VERSION,generated_at:stamp(),sources:sources.map(s=>({...s,...JSON.parse(s.data),data:undefined})),runs:runs.map(r=>({...r,summary:JSON.parse(r.summary)})),counts,candidates,evaluations:evaluations.map(e=>({...e,result:JSON.parse(e.result)})),feedback:feedback.map(f=>({...f,title:JSON.parse(f.data).title,data:undefined})),gates:{publication:'blocked_reference_benchmark',accuracy:null,model:'disabled_no_cost',scheduler:'not_connected',coverage:'Podcast Index person search via PinePods public service; 3 registered RSS feeds; Apple US/CN supplementary search; not exhaustive',explanation:'规则仅产生影子候选；尚未接入独立真实标注集，不宣称99%准确率。定时触发接口已实现，云端调度尚未连接。'}};
  }
  if(request.method==='GET'&&path==='/api/admin/evidence'){
   const id=new URL(request.url).searchParams.get('id')||'';const history=await all(db,'SELECT * FROM intake_snapshots WHERE candidate_id=? ORDER BY created_at DESC LIMIT 20',[id]);if(!history.length)fail(404,'证据不存在');return {history:history.map(s=>({...s,data:JSON.parse(s.data)}))};

@@ -7,6 +7,19 @@ const fail=(status,message)=>{throw Object.assign(new Error(message),{status,pub
 const field=(s,max=200)=>{if(typeof s!=='string'||s.trim().length>max)fail(400,'人物信息格式无效');return s.trim();};
 const text=s=>String(s||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
 const https=s=>{try{const u=new URL(s);return u.protocol==='https:'&&!u.username&&!u.password?u.href:'';}catch{return '';}};
+export async function providerGate(db){
+ const r=await one(db,"SELECT value FROM meta WHERE key='apple-search-gate'");if(!r)return null;
+ const g=JSON.parse(r.value);return g.retry_at>Date.now()?g:null;
+}
+function gateError(g){return Object.assign(new Error(g.message),{status:503,publicMessage:g.message,provider_blocked:true,retry_at:g.retry_at,upstream_status:g.upstream_status});}
+async function blockProvider(db,response){
+ const code=response.status,raw=response.headers.get('retry-after'),seconds=raw&&/^\d+$/.test(raw)?Number(raw):null;
+ const specified=seconds!==null?Date.now()+seconds*1000:Date.parse(raw||'');
+ const retry_at=Math.max(Date.now()+(code===429?15*60000:3600000),Number.isFinite(specified)?specified:0);
+ const message=code===403?'Apple 拒绝当前服务器的访问（403）。已停止后续请求；需要排查通道，等待不保证恢复。':'Apple 搜索正在限流（429）。已暂停此通道，冷却前不会继续请求。';
+ const g={upstream_status:code,retry_at,message,observed_at:now()};
+ await db.prepare("INSERT INTO meta(key,value) VALUES('apple-search-gate',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify(g)).run();return g;
+}
 export async function trackPerson(db,input){
  const name=field(input.name||'',100),hint=field(input.identity_hint||'',200),alias=field(input.alias||'',200);if(name.length<2)fail(400,'请输入至少两个字符的人物姓名');
  const known=(await all(db,'SELECT * FROM people')).map(p=>({...JSON.parse(p.data),id:p.id}));
@@ -19,19 +32,21 @@ export async function trackPerson(db,input){
  await db.prepare('INSERT OR IGNORE INTO tracking_people(id,data,enabled,created_at,next_run_at) VALUES(?,?,1,?,0)').bind(p.id,JSON.stringify(p),now()).run();return p;
 }
 export async function startPerson(db,id){
+ const gate=await providerGate(db);if(gate)throw gateError(gate);
  const row=await one(db,'SELECT * FROM tracking_people WHERE id=?',[id]);if(!row)fail(404,'追踪人物不存在');if(!row.enabled)fail(409,'该人物已暂停追踪');
  const p=JSON.parse(row.data),names=[...new Set(aliases(p).map(n=>n.trim()))].slice(0,2),queries=names.flatMap(term=>['us','cn'].map(country=>({term,country,status:'pending',count:0,cached:false})));
  const data={queries,position:0,matched:0,changed:0,skipped:0,sources:0,model_calls:0};
- await db.prepare("INSERT INTO tracking_jobs(person_id,run_id,status,data,created_at,updated_at) VALUES(?,?,'pending',?,?,?) ON CONFLICT(person_id) DO UPDATE SET run_id=excluded.run_id,status='pending',data=excluded.data,created_at=excluded.created_at,updated_at=excluded.updated_at WHERE tracking_jobs.status IN ('completed','partial','failed','cancelled')").bind(id,crypto.randomUUID(),JSON.stringify(data),now(),now()).run();return job(await one(db,'SELECT * FROM tracking_jobs WHERE person_id=?',[id]));
+ await db.prepare("INSERT INTO tracking_jobs(person_id,run_id,status,data,created_at,updated_at) VALUES(?,?,'pending',?,?,?) ON CONFLICT(person_id) DO UPDATE SET run_id=excluded.run_id,status='pending',data=excluded.data,created_at=excluded.created_at,updated_at=excluded.updated_at WHERE tracking_jobs.status IN ('completed','partial','failed','cancelled','blocked')").bind(id,crypto.randomUUID(),JSON.stringify(data),now(),now()).run();return job(await one(db,'SELECT * FROM tracking_jobs WHERE person_id=?',[id]));
 }
 function job(j){return j?{...j,data:JSON.parse(j.data)}:null;}
 export async function searchEpisodes(db,term,country,fetcher=fetch){
  const key=await hash('apple-v1|'+norm(term)+'|'+country),cached=await one(db,'SELECT * FROM discovery_cache WHERE key=? AND expires>?',[key,Date.now()]);if(cached)return {items:JSON.parse(cached.data),cached:true,fetched_at:cached.fetched_at};
+ const gate=await providerGate(db);if(gate)throw gateError(gate);
  // Shared global budget: API requests are limited even if several people are updated together.
  const bucket='apple-minute:'+Math.floor(Date.now()/60000);
  const budget=await one(db,'INSERT INTO rate_limits(key,count,expires) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 WHERE count<12 RETURNING count',[bucket,Date.now()+120000]);if(!budget)fail(429,'目录请求达到每分钟12次上限，请稍后继续');
  const u=new URL('https://itunes.apple.com/search');u.search=new URLSearchParams({term,media:'podcast',entity:'podcastEpisode',country,limit:'50'}).toString();
- const response=await fetcher(u.href,{redirect:'manual',signal:AbortSignal.timeout(15000),headers:{Accept:'application/json'}});if(!response.ok)fail(502,'Apple Podcasts 搜索返回 HTTP '+response.status);
+ const response=await fetcher(u.href,{redirect:'manual',signal:AbortSignal.timeout(15000),headers:{Accept:'application/json'}});if([403,429].includes(response.status)){await response.body?.cancel();throw gateError(await blockProvider(db,response));}if(!response.ok)fail(502,'Apple Podcasts 搜索返回 HTTP '+response.status);
  const reader=response.body?.getReader();if(!reader)fail(502,'目录返回空响应');let size=0,parts=[];
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>3*1024*1024)fail(502,'目录响应超过大小限制');parts.push(value);}}finally{await reader.cancel().catch(()=>{});}
  const bytes=new Uint8Array(size);let offset=0;for(const p of parts){bytes.set(p,offset);offset+=p.length;}let payload;try{payload=JSON.parse(new TextDecoder().decode(bytes));}catch{fail(502,'目录返回格式无效');}if(!Array.isArray(payload.results))fail(502,'目录结果格式无效');
@@ -63,16 +78,21 @@ export async function stepPerson(db,id,fetcher=fetch){
     const fence=await one(db,'SELECT token FROM intake_leases WHERE key=? AND token=? AND expires>?',[key,token,Date.now()]);if(!fence)fail(409,'任务租约已过期，请继续搜索');
     await db.batch([db.prepare('INSERT INTO intake_snapshots(id,candidate_id,run_id,fingerprint,data,created_at) VALUES(?,?,?,?,?,?)').bind(snap,candidateId,current.run_id,fingerprint,JSON.stringify(stored),now()),db.prepare('INSERT INTO intake_candidates(id,source_id,person_id,title,status,reason,fingerprint,snapshot_id,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,status=excluded.status,reason=excluded.reason,fingerprint=excluded.fingerprint,snapshot_id=excluded.snapshot_id,updated_at=excluded.updated_at').bind(candidateId,sourceId,p.id,item.title,decision.status,decision.reason,fingerprint,snap,now())]);data.changed++;
    }
-  }catch(error){console.warn('person_discovery_failed',error.name,error.message);query.status='failed';query.error=error.publicMessage||'目录连接失败，其他查询继续；可以重新更新';}
+  }catch(error){console.warn('person_discovery_failed',error.name,error.message);query.status=error.provider_blocked?'blocked':'failed';query.error=error.publicMessage||'目录连接失败，其他查询继续；可以重新更新';
+   if(error.provider_blocked){query.count=null;query.upstream_status=error.upstream_status;data.retry_at=error.retry_at;data.blocked_reason=error.publicMessage;
+    for(const q of data.queries.slice(data.position+1)){q.status='not_requested';q.count=null;q.error='同一 Apple 通道受限，本查询未发送。';}
+   }
+  }
   data.position++;
   let status=data.position>=data.queries.length?(data.queries.every(q=>q.status==='failed')?'failed':data.queries.some(q=>q.status==='failed')?'partial':'completed'):'pending';
+  if(data.blocked_reason)status='blocked';
   const enabled=await one(db,'SELECT enabled FROM tracking_people WHERE id=?',[id]);if(!enabled?.enabled)status='cancelled';
   await db.prepare('UPDATE tracking_jobs SET status=?,data=?,updated_at=? WHERE person_id=? AND run_id=?').bind(status,JSON.stringify(data),now(),id,current.run_id).run();
-  if(status!=='pending')await db.prepare('UPDATE tracking_people SET next_run_at=? WHERE id=?').bind(Date.now()+(status==='completed'?24:1)*3600000,id).run();
+  if(status!=='pending')await db.prepare('UPDATE tracking_people SET next_run_at=? WHERE id=?').bind(data.retry_at||Date.now()+(status==='completed'?24:1)*3600000,id).run();
   return job(await one(db,'SELECT * FROM tracking_jobs WHERE person_id=?',[id]));
  }finally{await db.prepare('DELETE FROM intake_leases WHERE key=? AND token=?').bind(key,token).run();}
 }
-export async function trackingState(db){const people=await all(db,'SELECT * FROM tracking_people ORDER BY created_at DESC');const jobs=await all(db,'SELECT * FROM tracking_jobs');return {people:people.map(p=>({...JSON.parse(p.data),enabled:!!p.enabled,next_run_at:p.next_run_at,job:job(jobs.find(j=>j.person_id===p.id))})),provider:'Apple Podcasts 中美目录',limit_per_query:50,cache_hours:24,scheduler:'not_connected'};}
+export async function trackingState(db){const people=await all(db,'SELECT * FROM tracking_people ORDER BY created_at DESC');const jobs=await all(db,'SELECT * FROM tracking_jobs');return {provider_gate:await providerGate(db),people:people.map(p=>({...JSON.parse(p.data),enabled:!!p.enabled,next_run_at:p.next_run_at,job:job(jobs.find(j=>j.person_id===p.id))})),provider:'Apple Podcasts 中美目录',limit_per_query:50,cache_hours:24,scheduler:'not_connected'};}
 export async function personDetail(db,id){
  const row=await one(db,'SELECT * FROM tracking_people WHERE id=?',[id]);if(!row)fail(404,'追踪人物不存在');
  const known=await all(db,"SELECT e.* FROM episodes e WHERE person_id=? AND status='approved' AND NOT EXISTS(SELECT 1 FROM hidden h WHERE h.episode_id=e.id)",[id]);
@@ -90,4 +110,4 @@ export async function personApi(request,db,path,body){
  if(path==='/api/admin/person-toggle'){const id=field(body.id||'');if(typeof body.enabled!=='boolean')fail(400,'追踪设置无效');if(!await one(db,'SELECT id FROM tracking_people WHERE id=?',[id]))fail(404,'追踪人物不存在');await db.batch([db.prepare('UPDATE tracking_people SET enabled=? WHERE id=?').bind(body.enabled?1:0,id),db.prepare("UPDATE tracking_jobs SET status='cancelled',updated_at=? WHERE person_id=? AND status='pending' AND ?=0").bind(now(),id,body.enabled?1:0)]);return {ok:true};}
  return null;
 }
-export async function tickPeople(db){const pending=await one(db,"SELECT p.id FROM tracking_people p JOIN tracking_jobs j ON j.person_id=p.id WHERE p.enabled=1 AND j.status='pending' ORDER BY j.updated_at LIMIT 1");if(pending)return stepPerson(db,pending.id);const due=await one(db,'SELECT id FROM tracking_people WHERE enabled=1 AND next_run_at<=? ORDER BY next_run_at LIMIT 1',[Date.now()]);if(!due)return {status:'not_due'};await startPerson(db,due.id);return stepPerson(db,due.id);}
+export async function tickPeople(db){const gate=await providerGate(db);if(gate)return {status:'blocked',gate};const pending=await one(db,"SELECT p.id FROM tracking_people p JOIN tracking_jobs j ON j.person_id=p.id WHERE p.enabled=1 AND j.status='pending' ORDER BY j.updated_at LIMIT 1");if(pending)return stepPerson(db,pending.id);const due=await one(db,'SELECT id FROM tracking_people WHERE enabled=1 AND next_run_at<=? ORDER BY next_run_at LIMIT 1',[Date.now()]);if(!due)return {status:'not_due'};await startPerson(db,due.id);return stepPerson(db,due.id);}
